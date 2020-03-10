@@ -45,8 +45,9 @@ func evpBytesToKey(password string, keyLen int) (key []byte) {
 	return m[:keyLen]
 }
 
+// 枚举定义
 type DecOrEnc int
-
+// 枚举常量
 const (
 	Decrypt DecOrEnc = iota
 	Encrypt
@@ -64,11 +65,24 @@ func newStream(block cipher.Block, err error, key, iv []byte,
 	}
 }
 
+// CFB - 密码反馈模式 步骤
+// 1. 创建密码接口
+// func NewCipher(key []byte) (cipher.Block, error)
+// 2. 创建初始向量 iv
+// 3. 加密 cipher.NewCFBEncrypter(block, iv)
+// 4. 解密 cipher.NewCFBDecrypter(block, iv)
 func newAESCFBStream(key, iv []byte, doe DecOrEnc) (cipher.Stream, error) {
 	block, err := aes.NewCipher(key)
 	return newStream(block, err, key, iv, doe)
 }
 
+// CTR - 计算器模式 步骤
+// 1. 创建密码接口
+// func NewCipher(key []byte) (cipher.Block, error)
+// 2. 创建初始向量 iv
+// 3. 创建CTR分组
+// cipher.NewCTR(block, iv)
+// 4. 加密/解密
 func newAESCTRStream(key, iv []byte, doe DecOrEnc) (cipher.Stream, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
@@ -149,12 +163,21 @@ func newSalsa20Stream(key, iv []byte, _ DecOrEnc) (cipher.Stream, error) {
 	return &c, nil
 }
 
+// 加密器信息
 type cipherInfo struct {
-	keyLen    int
-	ivLen     int
-	newStream func(key, iv []byte, doe DecOrEnc) (cipher.Stream, error)
+	keyLen    int	// 秘钥长度
+	ivLen     int	// 初始向量长度
+	newStream func(key, iv []byte, doe DecOrEnc) (cipher.Stream, error)		// 创建加解密流的函数
 }
 
+/**
+ AES 加密模式：
+ 1. ECB - 电码本模式
+ 2. CBC - 密码分组链接模式
+ 3. CTR - 计算器模式
+ 4. CFB - 密码反馈模式
+ 5. OFB - 输出反馈模式
+ */
 var cipherMethod = map[string]*cipherInfo{
 	"aes-128-cfb":   {16, 16, newAESCFBStream},
 	"aes-192-cfb":   {24, 16, newAESCFBStream},
@@ -183,11 +206,12 @@ func CheckCipherMethod(method string) error {
 	return nil
 }
 
+// 加密器
 type Cipher struct {
-	enc  cipher.Stream
-	dec  cipher.Stream
-	key  []byte
-	info *cipherInfo
+	enc  cipher.Stream	// 加密流
+	dec  cipher.Stream	// 解密流
+	key  []byte			// 秘钥
+	info *cipherInfo	// 加密器信息
 }
 
 // NewCipher creates a cipher that can be used in Dial() etc.
@@ -202,6 +226,9 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 		return nil, errors.New("Unsupported encryption method: " + method)
 	}
 
+	// The key can be input directly from user or generated from a password
+	// The key derivation is following EVP_BytesToKey(3) in OpenSSL.
+	// The detailed spec can be found here: https://wiki.openssl.org/index.php/Manual:EVP_BytesToKey(3)
 	key := evpBytesToKey(password, mi.keyLen)
 
 	c = &Cipher{key: key, info: mi}
@@ -214,10 +241,12 @@ func NewCipher(method, password string) (c *Cipher, err error) {
 
 // Initializes the block cipher with CFB mode, returns IV.
 func (c *Cipher) initEncrypt() (iv []byte, err error) {
+	// 根据iv长度，用随机数填充iv
 	iv = make([]byte, c.info.ivLen)
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return nil, err
 	}
+	// 生成加密流
 	c.enc, err = c.info.newStream(c.key, iv, Encrypt)
 	return
 }

@@ -36,10 +36,26 @@ const (
 	socksCmdConnect = 1
 )
 
+// 包初始化函数
 func init() {
+	// rand.Int -> 获取随机数，不加随机种子，每次遍历获取都是重复的一些随机数据
+	// 设置随机数种子，加上这行代码，可以保证每次随机都是随机的
+	//rand.Seed(time.Now().UnixNano())
 	rand.Seed(time.Now().Unix())
 }
 
+// socks5协议 - 握手阶段
+// 请求
+//|VER | NMETHODS | METHODS  |
+//+----+----------+----------+
+//| 1  |    1     |  1~255   |
+//+----+----------+----------+
+// 响应
+//+----+--------+
+//|VER | METHOD |
+//+----+--------+
+//| 1  |   1    |
+//+----+--------+
 func handShake(conn net.Conn) (err error) {
 	const (
 		idVer     = 0
@@ -55,6 +71,7 @@ func handShake(conn net.Conn) (err error) {
 	var n int
 	ss.SetReadTimeout(conn)
 	// make sure we get the nmethod field
+	// 读取前2个字节
 	if n, err = io.ReadAtLeast(conn, buf, idNmethod+1); err != nil {
 		return
 	}
@@ -77,6 +94,18 @@ func handShake(conn net.Conn) (err error) {
 	return
 }
 
+// socks5协议 - 建立连接，获取客户端请求的真实地址
+// 请求
+//|VER | CMD |  RSV  | ATYP | DST.ADDR | DST.PORT |
+//+----+-----+-------+------+----------+----------+
+//| 1  |  1  |   1   |  1   | Variable |    2     |
+//+----+-----+-------+------+----------+----------+
+// 响应
+//+----+-----+-------+------+----------+----------+
+//|VER | REP |  RSV  | ATYP | BND.ADDR | BND.PORT |
+//+----+-----+-------+------+----------+----------+
+//| 1  |  1  |   1   |  1   | Variable |    2     |
+//+----+-----+-------+------+----------+----------+
 func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 	const (
 		idVer   = 0
@@ -136,6 +165,7 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 		return
 	}
 
+	// 原始socks5地址
 	rawaddr = buf[idType:reqLen]
 
 	if debug {
@@ -155,8 +185,8 @@ func getRequest(conn net.Conn) (rawaddr []byte, host string, err error) {
 }
 
 type ServerCipher struct {
-	server string
-	cipher *ss.Cipher
+	server string		// ss-remote
+	cipher *ss.Cipher	// 加密信息
 }
 
 var servers struct {
@@ -235,8 +265,10 @@ func parseServerConfig(config *ss.Config) {
 	return
 }
 
+// 连接到ss-remote
 func connectToServer(serverId int, rawaddr []byte, addr string) (remote *ss.Conn, err error) {
 	se := servers.srvCipher[serverId]
+	// 以client->ss-local的rawaddr作为数据包，发送给ss-remote
 	remote, err = ss.DialWithRawAddr(rawaddr, se.server, se.cipher.Copy())
 	if err != nil {
 		log.Println("error connecting to shadowsocks server:", err)
